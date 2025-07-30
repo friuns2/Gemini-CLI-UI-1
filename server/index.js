@@ -1017,7 +1017,7 @@ async function startServer() {
       process.exit(1); // Exit with an error code
     }
 
-    // console.log('✅ Gemini CLI available');
+    console.log('✅ Gemini CLI available');
 
     // Initialize authentication database
     await initializeDatabase();
