@@ -87,12 +87,57 @@ async function extractProjectDirectory(projectName) {
       // Fall back to decoded project name if no sessions
       // First try to decode from base64
       try {
-        // Handle custom padding: __ at the end should be replaced with ==
-        let base64Name = projectName.replace(/_/g, '+').replace(/-/g, '/');
-        if (base64Name.endsWith('++')) {
-          base64Name = base64Name.slice(0, -2) + '==';
+        // Properly reverse the URL-safe base64 encoding scheme
+        // The encoding replaces [/+=] with _, so we need to reverse this
+        // For URL-safe base64: _ represents original /, +, or = characters
+        
+        // Start by converting back to standard base64
+        let base64Name = projectName;
+        
+        // Count underscores at the end (these were likely = padding)
+        const trailingUnderscores = (projectName.match(/_+$/)?.[0] || '').length;
+        
+        // Replace all _ with + first (this handles most cases)
+        base64Name = base64Name.replace(/_/g, '+');
+        
+        // If we had trailing underscores, they were likely = padding
+        if (trailingUnderscores > 0) {
+          // Replace trailing + characters (converted from _) back to = for padding
+          base64Name = base64Name.replace(/\++$/, '='.repeat(trailingUnderscores));
         }
-        extractedPath = Buffer.from(base64Name, 'base64').toString('utf8');
+        
+        // Try with different interpretations of the URL-safe encoding
+        let attempts = [
+          base64Name, // Try as-is first
+          projectName.replace(/_/g, '/'), // Maybe _ was /
+          projectName.replace(/_/g, '='), // Maybe _ was =
+          projectName.replace(/_/g, '+'), // Maybe _ was +
+        ];
+        
+        // Add proper base64 padding if missing
+        for (let attempt of attempts) {
+          const padding = 4 - (attempt.length % 4);
+          if (padding !== 4) {
+            attempts.push(attempt + '='.repeat(padding));
+          }
+        }
+        
+        let decoded = null;
+        for (const attempt of attempts) {
+          try {
+            decoded = Buffer.from(attempt, 'base64').toString('utf8');
+            // If decode succeeds and result looks like a valid path, use it
+            if (decoded && (decoded.startsWith('/') || decoded.includes('/'))) {
+              break;
+            }
+          } catch (e) {
+            // Try next attempt
+            continue;
+          }
+        }
+        
+        extractedPath = decoded || projectName.replace(/-/g, '/');
+        
         // Clean the path by removing any non-printable characters
         extractedPath = extractedPath.replace(/[^\x20-\x7E]/g, '').trim();
       } catch (e) {
@@ -103,32 +148,32 @@ async function extractProjectDirectory(projectName) {
       // Process all JSONL files to collect cwd values
       for (const file of jsonlFiles) {
         const jsonlFile = path.join(projectDir, file);
-        const fileStream = fsSync.createReadStream(jsonlFile);
-        const rl = readline.createInterface({
-          input: fileStream,
-          crlfDelay: Infinity
-        });
         
-        for await (const line of rl) {
-          if (line.trim()) {
+        try {
+          const content = await fs.readFile(jsonlFile, 'utf8');
+          const lines = content.trim().split('\n').filter(line => line.trim());
+          
+          for (const line of lines) {
             try {
               const entry = JSON.parse(line);
               
+              // Track all cwd occurrences and their frequency
               if (entry.cwd) {
-                // Count occurrences of each cwd
-                cwdCounts.set(entry.cwd, (cwdCounts.get(entry.cwd) || 0) + 1);
+                const currentCount = cwdCounts.get(entry.cwd) || 0;
+                cwdCounts.set(entry.cwd, currentCount + 1);
                 
-                // Track the most recent cwd
-                const timestamp = new Date(entry.timestamp || 0).getTime();
-                if (timestamp > latestTimestamp) {
-                  latestTimestamp = timestamp;
+                // Track most recent entry
+                if (entry.timestamp && entry.timestamp > latestTimestamp) {
+                  latestTimestamp = entry.timestamp;
                   latestCwd = entry.cwd;
                 }
               }
             } catch (parseError) {
-              // Skip malformed lines
+              // Skip malformed JSON lines
             }
           }
+        } catch (readError) {
+          // Skip files that can't be read
         }
       }
       
@@ -160,7 +205,14 @@ async function extractProjectDirectory(projectName) {
         // Fallback (shouldn't reach here)
         if (!extractedPath) {
           try {
-            extractedPath = latestCwd || Buffer.from(projectName.replace(/_/g, '+').replace(/-/g, '/'), 'base64').toString('utf8');
+            // Use the same improved base64 decoding logic as above
+            let base64Name = projectName;
+            const trailingUnderscores = (projectName.match(/_+$/)?.[0] || '').length;
+            base64Name = base64Name.replace(/_/g, '+');
+            if (trailingUnderscores > 0) {
+              base64Name = base64Name.replace(/\++$/, '='.repeat(trailingUnderscores));
+            }
+            extractedPath = Buffer.from(base64Name, 'base64').toString('utf8');
           } catch (e) {
             extractedPath = latestCwd || projectName.replace(/-/g, '/');
           }
@@ -180,10 +232,12 @@ async function extractProjectDirectory(projectName) {
     // console.error(`Error extracting project directory for ${projectName}:`, error);
     // Fall back to decoded project name
     try {
-      // Handle custom padding: __ at the end should be replaced with ==
-      let base64Name = projectName.replace(/_/g, '+').replace(/-/g, '/');
-      if (base64Name.endsWith('++')) {
-        base64Name = base64Name.slice(0, -2) + '==';
+      // Use the same improved base64 decoding logic
+      let base64Name = projectName;
+      const trailingUnderscores = (projectName.match(/_+$/)?.[0] || '').length;
+      base64Name = base64Name.replace(/_/g, '+');
+      if (trailingUnderscores > 0) {
+        base64Name = base64Name.replace(/\++$/, '='.repeat(trailingUnderscores));
       }
       extractedPath = Buffer.from(base64Name, 'base64').toString('utf8');
       // Clean the path by removing any non-printable characters
