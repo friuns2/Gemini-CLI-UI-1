@@ -37,7 +37,7 @@ import fetch from 'node-fetch';
 import mime from 'mime-types';
 
 import { getProjects, getSessions, getSessionMessages, renameProject, deleteSession, deleteProject, addProjectManually, extractProjectDirectory, clearProjectDirectoryCache } from './projects.js';
-import { spawnGemini, abortGeminiSession } from './gemini-cli.js';
+import { spawnGemini, abortGeminiSession, checkGeminiAvailable } from './gemini-cli.js';
 import sessionManager from './sessionManager.js';
 import gitRoutes from './routes/git.js';
 import authRoutes from './routes/auth.js';
@@ -525,19 +525,17 @@ function handleShellConnection(ws) {
         }));
         
         try {
-          // Import the findGeminiPath function from gemini-cli.js
-          const { findGeminiPath } = await import('./gemini-cli.js');
+          // Get gemini command from environment or use default
+          const geminiPath = process.env.GEMINI_PATH || 'gemini';
           
-          // Get gemini path using the same detection logic
-          let geminiPath;
+          // First check if gemini CLI is available
           try {
-            geminiPath = await findGeminiPath();
-            console.log('✅ Found Gemini CLI for shell at:', geminiPath);
+            execSync(`which ${geminiPath}`, { stdio: 'ignore' });
           } catch (error) {
-            console.error('❌ Gemini CLI not found for shell:', error.message);
+            // console.error('❌ Gemini CLI not found in PATH or GEMINI_PATH');
             ws.send(JSON.stringify({
               type: 'output',
-              data: `\r\n\x1b[31mError: Gemini CLI not found. Please check:\x1b[0m\r\n\x1b[33m1. Install gemini globally: npm install -g @google/generative-ai-cli\x1b[0m\r\n\x1b[33m2. Or set GEMINI_PATH in .env file\x1b[0m\r\n\x1b[33m3. Error: ${error.message}\x1b[0m\r\n`
+              data: `\r\n\x1b[31mError: Gemini CLI not found. Please check:\x1b[0m\r\n\x1b[33m1. Install gemini globally: npm install -g @google/generative-ai-cli\x1b[0m\r\n\x1b[33m2. Or set GEMINI_PATH in .env file\x1b[0m\r\n`
             }));
             return;
           }
@@ -1004,6 +1002,23 @@ const PORT = process.env.PORT || 4008;
 // Initialize database and start server
 async function startServer() {
   try {
+    // Check Gemini CLI availability at server startup
+    const geminiPath = process.env.GEMINI_PATH || 'gemini';
+    const isGeminiAvailable = await checkGeminiAvailable(geminiPath);
+
+    if (!isGeminiAvailable) {
+      console.error(`\x1b[31mError: Gemini CLI not found or not working.\x1b[0m`);
+      console.error(`\x1b[33mPlease ensure:\x1b[0m`);
+      console.error(`\x1b[33m1. Gemini CLI is installed (https://github.com/google-gemini/gemini-cli)\x1b[0m`);
+      console.error(`\x1b[33m2. The 'gemini' command is in your system PATH, or\x1b[0m`);
+      console.error(`\x1b[33m3. Set the GEMINI_PATH environment variable to the full path of the gemini executable.\x1b[0m`);
+      console.error(`\x1b[33mCurrent gemini path being checked: ${geminiPath}\x1b[0m`);
+      console.error(`\x1b[33mTry running '${geminiPath} --version' in your terminal.\x1b[0m`);
+      process.exit(1); // Exit with an error code
+    }
+
+    // console.log('✅ Gemini CLI available');
+
     // Initialize authentication database
     await initializeDatabase();
     // console.log('✅ Database initialization skipped (testing)');

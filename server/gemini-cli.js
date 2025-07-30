@@ -46,29 +46,6 @@ async function spawnGemini(command, options = {}, ws) {
     let sessionCreatedSent = false; // Track if we've already sent session-created event
     let fullResponse = ''; // Accumulate the full response
     
-    // Try to find gemini in PATH first, then fall back to environment variable
-    const geminiPath = process.env.GEMINI_PATH || 'gemini';
-    
-    // Check if gemini CLI is available before proceeding
-    const isGeminiAvailable = await checkGeminiAvailable(geminiPath);
-    if (!isGeminiAvailable) {
-      const errorMsg = `Gemini CLI not found. Please ensure:
-1. Gemini CLI is installed (https://github.com/google-gemini/gemini-cli)
-2. The 'gemini' command is in your PATH, or
-3. Set the GEMINI_PATH environment variable to the full path of the gemini executable
-
-Current gemini path: ${geminiPath}
-Try running: ${geminiPath} --version`;
-      
-      ws.send(JSON.stringify({
-        type: 'gemini-error',
-        error: errorMsg
-      }));
-      
-      reject(new Error(errorMsg));
-      return;
-    }
-    
     // Process images if provided
     
     // Use tools settings passed from frontend, or defaults
@@ -250,6 +227,8 @@ Try running: ${geminiPath} --version`;
     // console.log('Spawning Gemini CLI with args:', args);
     // console.log('Working directory:', workingDir);
     
+    // Try to find gemini in PATH first, then fall back to environment variable
+    const geminiPath = process.env.GEMINI_PATH || 'gemini';
     // console.log('Full command:', geminiPath, args.join(' '));
     
     const geminiProcess = spawn(geminiPath, args, {
@@ -502,5 +481,6 @@ function abortGeminiSession(sessionId) {
 
 export {
   spawnGemini,
-  abortGeminiSession
+  abortGeminiSession,
+  checkGeminiAvailable
 };
