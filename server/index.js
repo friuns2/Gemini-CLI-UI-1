@@ -525,17 +525,19 @@ function handleShellConnection(ws) {
         }));
         
         try {
-          // Get gemini command from environment or use default
-          const geminiPath = process.env.GEMINI_PATH || 'gemini';
+          // Import the findGeminiPath function from gemini-cli.js
+          const { findGeminiPath } = await import('./gemini-cli.js');
           
-          // First check if gemini CLI is available
+          // Get gemini path using the same detection logic
+          let geminiPath;
           try {
-            execSync(`which ${geminiPath}`, { stdio: 'ignore' });
+            geminiPath = await findGeminiPath();
+            console.log('✅ Found Gemini CLI for shell at:', geminiPath);
           } catch (error) {
-            // console.error('❌ Gemini CLI not found in PATH or GEMINI_PATH');
+            console.error('❌ Gemini CLI not found for shell:', error.message);
             ws.send(JSON.stringify({
               type: 'output',
-              data: `\r\n\x1b[31mError: Gemini CLI not found. Please check:\x1b[0m\r\n\x1b[33m1. Install gemini globally: npm install -g @google/generative-ai-cli\x1b[0m\r\n\x1b[33m2. Or set GEMINI_PATH in .env file\x1b[0m\r\n`
+              data: `\r\n\x1b[31mError: Gemini CLI not found. Please check:\x1b[0m\r\n\x1b[33m1. Install gemini globally: npm install -g @google/generative-ai-cli\x1b[0m\r\n\x1b[33m2. Or set GEMINI_PATH in .env file\x1b[0m\r\n\x1b[33m3. Error: ${error.message}\x1b[0m\r\n`
             }));
             return;
           }
