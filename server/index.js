@@ -37,13 +37,10 @@ import fetch from 'node-fetch';
 import mime from 'mime-types';
 
 import { getProjects, getSessions, getSessionMessages, renameProject, deleteSession, deleteProject, addProjectManually, extractProjectDirectory, clearProjectDirectoryCache } from './projects.js';
-import { spawnGemini, abortGeminiSession, checkGeminiAvailable } from './gemini-cli.js';
+import { spawnGemini, abortGeminiSession } from './gemini-cli.js';
 import sessionManager from './sessionManager.js';
 import gitRoutes from './routes/git.js';
-import authRoutes from './routes/auth.js';
 import mcpRoutes from './routes/mcp.js';
-import { initializeDatabase } from './database/db.js';
-import { validateApiKey, authenticateToken, authenticateWebSocket } from './middleware/auth.js';
 
 // File system watcher for projects folder
 let projectsWatcher = null;
@@ -136,51 +133,25 @@ async function setupProjectsWatcher() {
 const app = express();
 const server = http.createServer(app);
 
-// Single WebSocket server that handles both paths
+// Single WebSocket server without authentication
 const wss = new WebSocketServer({ 
-  server,
-  verifyClient: (info) => {
-    // console.log('WebSocket connection attempt to:', info.req.url);
-    
-    // Extract token from query parameters or headers
-    const url = new URL(info.req.url, 'http://localhost');
-    const token = url.searchParams.get('token') || 
-                  info.req.headers.authorization?.split(' ')[1];
-    
-    // Verify token
-    const user = authenticateWebSocket(token);
-    if (!user) {
-      // console.log('❌ WebSocket authentication failed');
-      return false;
-    }
-    
-    // Store user info in the request for later use
-    info.req.user = user;
-    // console.log('✅ WebSocket authenticated for user:', user.username);
-    return true;
-  }
+  server
 });
 
 app.use(cors());
 app.use(express.json());
 
-// Optional API key validation (if configured)
-app.use('/api', validateApiKey);
+// Git API Routes (now public)
+app.use('/api/git', gitRoutes);
 
-// Authentication routes (public)
-app.use('/api/auth', authRoutes);
-
-// Git API Routes (protected)
-app.use('/api/git', authenticateToken, gitRoutes);
-
-// MCP API Routes (protected)
-app.use('/api/mcp', authenticateToken, mcpRoutes);
+// MCP API Routes (now public)
+app.use('/api/mcp', mcpRoutes);
 
 // Static files served after API routes
 app.use(express.static(path.join(__dirname, '../dist')));
 
-// API Routes (protected)
-app.get('/api/config', authenticateToken, (req, res) => {
+// API Routes (now public)
+app.get('/api/config', (req, res) => {
   const host = req.headers.host || `${req.hostname}:${PORT}`;
   const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'wss' : 'ws';
   
@@ -192,7 +163,7 @@ app.get('/api/config', authenticateToken, (req, res) => {
   });
 });
 
-app.get('/api/projects', authenticateToken, async (req, res) => {
+app.get('/api/projects', async (req, res) => {
   try {
     const projects = await getProjects();
     res.json(projects);
@@ -201,7 +172,7 @@ app.get('/api/projects', authenticateToken, async (req, res) => {
   }
 });
 
-app.get('/api/projects/:projectName/sessions', authenticateToken, async (req, res) => {
+app.get('/api/projects/:projectName/sessions', async (req, res) => {
   try {
     // Extract the actual project directory path
     const projectPath = await extractProjectDirectory(req.params.projectName);
@@ -223,7 +194,7 @@ app.get('/api/projects/:projectName/sessions', authenticateToken, async (req, re
 });
 
 // Get messages for a specific session
-app.get('/api/projects/:projectName/sessions/:sessionId/messages', authenticateToken, async (req, res) => {
+app.get('/api/projects/:projectName/sessions/:sessionId/messages', async (req, res) => {
   try {
     const { projectName, sessionId } = req.params;
     const messages = sessionManager.getSessionMessages(sessionId);
@@ -234,7 +205,7 @@ app.get('/api/projects/:projectName/sessions/:sessionId/messages', authenticateT
 });
 
 // Rename project endpoint
-app.put('/api/projects/:projectName/rename', authenticateToken, async (req, res) => {
+app.put('/api/projects/:projectName/rename', async (req, res) => {
   try {
     const { displayName } = req.body;
     await renameProject(req.params.projectName, displayName);
@@ -245,7 +216,7 @@ app.put('/api/projects/:projectName/rename', authenticateToken, async (req, res)
 });
 
 // Delete session endpoint
-app.delete('/api/projects/:projectName/sessions/:sessionId', authenticateToken, async (req, res) => {
+app.delete('/api/projects/:projectName/sessions/:sessionId', async (req, res) => {
   try {
     const { projectName, sessionId } = req.params;
     await sessionManager.deleteSession(sessionId);
@@ -256,7 +227,7 @@ app.delete('/api/projects/:projectName/sessions/:sessionId', authenticateToken, 
 });
 
 // Delete project endpoint (only if empty)
-app.delete('/api/projects/:projectName', authenticateToken, async (req, res) => {
+app.delete('/api/projects/:projectName', async (req, res) => {
   try {
     const { projectName } = req.params;
     await deleteProject(projectName);
@@ -267,7 +238,7 @@ app.delete('/api/projects/:projectName', authenticateToken, async (req, res) => 
 });
 
 // Create project endpoint
-app.post('/api/projects/create', authenticateToken, async (req, res) => {
+app.post('/api/projects/create', async (req, res) => {
   try {
     const { path: projectPath } = req.body;
     
@@ -284,7 +255,7 @@ app.post('/api/projects/create', authenticateToken, async (req, res) => {
 });
 
 // Read file content endpoint
-app.get('/api/projects/:projectName/file', authenticateToken, async (req, res) => {
+app.get('/api/projects/:projectName/file', async (req, res) => {
   try {
     const { projectName } = req.params;
     const { filePath } = req.query;
@@ -313,7 +284,7 @@ app.get('/api/projects/:projectName/file', authenticateToken, async (req, res) =
 });
 
 // Serve binary file content endpoint (for images, etc.)
-app.get('/api/projects/:projectName/files/content', authenticateToken, async (req, res) => {
+app.get('/api/projects/:projectName/files/content', async (req, res) => {
   try {
     const { projectName } = req.params;
     const { path: filePath } = req.query;
@@ -359,7 +330,7 @@ app.get('/api/projects/:projectName/files/content', authenticateToken, async (re
 });
 
 // Save file content endpoint
-app.put('/api/projects/:projectName/file', authenticateToken, async (req, res) => {
+app.put('/api/projects/:projectName/file', async (req, res) => {
   try {
     const { projectName } = req.params;
     const { filePath, content } = req.body;
@@ -406,7 +377,7 @@ app.put('/api/projects/:projectName/file', authenticateToken, async (req, res) =
   }
 });
 
-app.get('/api/projects/:projectName/files', authenticateToken, async (req, res) => {
+app.get('/api/projects/:projectName/files', async (req, res) => {
   try {
     
     // Using fsPromises from import
@@ -678,7 +649,7 @@ function handleShellConnection(ws) {
   });
 }
 // Audio transcription endpoint
-app.post('/api/transcribe', authenticateToken, async (req, res) => {
+app.post('/api/transcribe', async (req, res) => {
   try {
     const multer = (await import('multer')).default;
     const upload = multer({ storage: multer.memoryStorage() });
@@ -827,7 +798,7 @@ Agent instructions:`;
 });
 
 // Image upload endpoint
-app.post('/api/projects/:projectName/upload-images', authenticateToken, async (req, res) => {
+app.post('/api/projects/:projectName/upload-images', async (req, res) => {
   try {
     const multer = (await import('multer')).default;
     const path = (await import('path')).default;
@@ -837,7 +808,7 @@ app.post('/api/projects/:projectName/upload-images', authenticateToken, async (r
     // Configure multer for image uploads
     const storage = multer.diskStorage({
       destination: async (req, file, cb) => {
-        const uploadDir = path.join(os.tmpdir(), 'gemini-ui-uploads', String(req.user.id));
+        const uploadDir = path.join(os.tmpdir(), 'gemini-ui-uploads');
         await fs.mkdir(uploadDir, { recursive: true });
         cb(null, uploadDir);
       },
@@ -999,35 +970,14 @@ async function getFileTree(dirPath, maxDepth = 3, currentDepth = 0, showHidden =
 
 const PORT = process.env.PORT || 4008;
 
-// Initialize database and start server
+// Start server without authentication
 async function startServer() {
   try {
-    // Check Gemini CLI availability at server startup
-    const geminiPath = process.env.GEMINI_PATH || 'gemini';
-    const isGeminiAvailable = await checkGeminiAvailable(geminiPath);
-
-    if (!isGeminiAvailable) {
-      console.error(`\x1b[31mError: Gemini CLI not found or not working.\x1b[0m`);
-      console.error(`\x1b[33mPlease ensure:\x1b[0m`);
-      console.error(`\x1b[33m1. Gemini CLI is installed (https://github.com/google-gemini/gemini-cli)\x1b[0m`);
-      console.error(`\x1b[33m2. The 'gemini' command is in your system PATH, or\x1b[0m`);
-      console.error(`\x1b[33m3. Set the GEMINI_PATH environment variable to the full path of the gemini executable.\x1b[0m`);
-      console.error(`\x1b[33mCurrent gemini path being checked: ${geminiPath}\x1b[0m`);
-      console.error(`\x1b[33mTry running '${geminiPath} --version' in your terminal.\x1b[0m`);
-      process.exit(1); // Exit with an error code
-    }
-
-    console.log('✅ Gemini CLI available');
-
-    // Initialize authentication database
-    await initializeDatabase();
-    // console.log('✅ Database initialization skipped (testing)');
-    
     server.listen(PORT, '0.0.0.0', async () => {
       // console.log(`Gemini CLI UI server running on http://0.0.0.0:${PORT}`);
       
       // Start watching the projects folder for changes
-      await setupProjectsWatcher(); // Re-enabled with better-sqlite3
+      await setupProjectsWatcher();
     });
   } catch (error) {
     // console.error('❌ Failed to start server:', error);
