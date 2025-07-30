@@ -6,39 +6,6 @@ import sessionManager from './sessionManager.js';
 
 let activeGeminiProcesses = new Map(); // Track active processes by session ID
 
-// Function to check if gemini CLI is available
-async function checkGeminiAvailable(geminiPath) {
-  return new Promise((resolve) => {
-    const testProcess = spawn(geminiPath, ['--version'], {
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
-    
-    let hasOutput = false;
-    
-    testProcess.stdout.on('data', () => {
-      hasOutput = true;
-    });
-    
-    testProcess.stderr.on('data', () => {
-      hasOutput = true;
-    });
-    
-    testProcess.on('close', (code) => {
-      resolve(hasOutput || code === 0);
-    });
-    
-    testProcess.on('error', () => {
-      resolve(false);
-    });
-    
-    // Timeout after 5 seconds
-    setTimeout(() => {
-      testProcess.kill();
-      resolve(false);
-    }, 5000);
-  });
-}
-
 async function spawnGemini(command, options = {}, ws) {
   return new Promise(async (resolve, reject) => {
     const { sessionId, projectPath, cwd, resume, toolsSettings, permissionMode, images } = options;
@@ -82,6 +49,19 @@ async function spawnGemini(command, options = {}, ws) {
     // Clean the path by removing any non-printable characters
     const cleanPath = (cwd || process.cwd()).replace(/[^\x20-\x7E]/g, '').trim();
     const workingDir = cleanPath;
+    
+    // Check if workingDir exists
+    try {
+      await fs.access(workingDir);
+    } catch (error) {
+      const errorMessage = `Working directory does not exist: ${workingDir}`;
+      ws.send(JSON.stringify({
+        type: 'gemini-error',
+        error: errorMessage
+      }));
+      reject(new Error(errorMessage));
+      return;
+    }
     // Debug - workingDir
     
     // Handle images by saving them to temporary files and passing paths to Gemini
@@ -481,6 +461,5 @@ function abortGeminiSession(sessionId) {
 
 export {
   spawnGemini,
-  abortGeminiSession,
-  checkGeminiAvailable
+  abortGeminiSession
 };
