@@ -198,11 +198,45 @@ async function spawnGemini(command, options = {}, ws) {
     const geminiPath = process.env.GEMINI_PATH || 'gemini';
     // console.log('Full command:', geminiPath, args.join(' '));
     
-    const geminiProcess = spawn(geminiPath, args, {
-      cwd: workingDir,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env } // Inherit all environment variables
-    });
+    // More robust approach to spawn gemini
+    let geminiProcess;
+    
+    try {
+      // First try: Use absolute path with enhanced environment
+      geminiProcess = spawn('/opt/homebrew/bin/gemini', args, {
+        cwd: workingDir,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: { 
+          ...process.env,
+          PATH: `${process.env.PATH}:/opt/homebrew/bin:/usr/local/bin`,
+          NODE_PATH: '/opt/homebrew/lib/node_modules'
+        }
+      });
+    } catch (error) {
+      // Fallback: Use gemini from PATH with enhanced environment
+      try {
+        geminiProcess = spawn('gemini', args, {
+          cwd: workingDir,
+          stdio: ['pipe', 'pipe', 'pipe'],
+          env: { 
+            ...process.env,
+            PATH: `${process.env.PATH}:/opt/homebrew/bin:/usr/local/bin`,
+            NODE_PATH: '/opt/homebrew/lib/node_modules'
+          }
+        });
+      } catch (fallbackError) {
+        // Final fallback: Use node to execute the script directly
+        geminiProcess = spawn('node', ['/opt/homebrew/lib/node_modules/@google/gemini-cli/dist/index.js', ...args], {
+          cwd: workingDir,
+          stdio: ['pipe', 'pipe', 'pipe'],
+          env: { 
+            ...process.env,
+            PATH: `${process.env.PATH}:/opt/homebrew/bin:/usr/local/bin`,
+            NODE_PATH: '/opt/homebrew/lib/node_modules'
+          }
+        });
+      }
+    }
     
     // Attach temp file info to process for cleanup later
     geminiProcess.tempImagePaths = tempImagePaths;
