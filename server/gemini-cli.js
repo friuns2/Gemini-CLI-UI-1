@@ -82,7 +82,7 @@ async function spawnGemini(command, options = {}, ws) {
         // Include the full image paths in the prompt for Gemini to reference
         // Gemini CLI can read images from file paths in the prompt
         if (tempImagePaths.length > 0 && command && command.trim()) {
-          const imageNote = `\n\n[画像を添付しました: ${tempImagePaths.length}枚の画像があります。以下のパスに保存されています:]\n${tempImagePaths.map((p, i) => `${i + 1}. ${p}`).join('\n')}`;
+          const imageNote = `\n\n[Attached images: ${tempImagePaths.length} images are saved in the following paths:]\n${tempImagePaths.map((p, i) => `${i + 1}. ${p}`).join('\n')}`;
           const modifiedCommand = command + imageNote;
           
           // Update the command in args
@@ -198,45 +198,11 @@ async function spawnGemini(command, options = {}, ws) {
     const geminiPath = process.env.GEMINI_PATH || 'gemini';
     // console.log('Full command:', geminiPath, args.join(' '));
     
-    // More robust approach to spawn gemini
-    let geminiProcess;
-    
-    try {
-      // First try: Use absolute path with enhanced environment
-      geminiProcess = spawn('/opt/homebrew/bin/gemini', args, {
-        cwd: workingDir,
-        stdio: ['pipe', 'pipe', 'pipe'],
-        env: { 
-          ...process.env,
-          PATH: `${process.env.PATH}:/opt/homebrew/bin:/usr/local/bin`,
-          NODE_PATH: '/opt/homebrew/lib/node_modules'
-        }
-      });
-    } catch (error) {
-      // Fallback: Use gemini from PATH with enhanced environment
-      try {
-        geminiProcess = spawn('gemini', args, {
-          cwd: workingDir,
-          stdio: ['pipe', 'pipe', 'pipe'],
-          env: { 
-            ...process.env,
-            PATH: `${process.env.PATH}:/opt/homebrew/bin:/usr/local/bin`,
-            NODE_PATH: '/opt/homebrew/lib/node_modules'
-          }
-        });
-      } catch (fallbackError) {
-        // Final fallback: Use node to execute the script directly
-        geminiProcess = spawn('node', ['/opt/homebrew/lib/node_modules/@google/gemini-cli/dist/index.js', ...args], {
-          cwd: workingDir,
-          stdio: ['pipe', 'pipe', 'pipe'],
-          env: { 
-            ...process.env,
-            PATH: `${process.env.PATH}:/opt/homebrew/bin:/usr/local/bin`,
-            NODE_PATH: '/opt/homebrew/lib/node_modules'
-          }
-        });
-      }
-    }
+    const geminiProcess = spawn(geminiPath, args, {
+      cwd: workingDir,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env } // Inherit all environment variables
+    });
     
     // Attach temp file info to process for cleanup later
     geminiProcess.tempImagePaths = tempImagePaths;
